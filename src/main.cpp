@@ -161,5 +161,16 @@ int main( int argc, const char** argv )
 //    	waitKey(0);
     //*************************************************
 
+
+    Point3f Ol(0,0,0);
+    float f = 366; //in pixels because fuck you that's why
+    float rotationY = 45; //in degrees motherfucka
+    float translationX = 30; //in cm BITCH
+    float translationZ = 12.5; //in cm also crazy whore
+
+    Size leftSize = leftImage.size();
+    Point3f OimgL(-leftSize.width/2, leftSize.height/2, f);
+
+
     return 0;
 }
