@@ -25,6 +25,14 @@ Point3f get3DPoint(Point3f Ol, Point3f Or, Point3f xl, Point3f xr)
 
 }
 
+Point3f applyRotationY(Point3f point, float angle, float constX, float constZ)
+{
+	Point3f result(0,point.y,0);
+	result.x = point.x * cos(angle) - point.z * sin(angle) + constX;
+	result.z = point.x * sin(angle) + point.z * cos(angle) + constZ;
+	return result;
+}
+
 void drawEpilines(Mat & img, vector< Vec3f> lines, vector< Point2f > points)
 {
     for (std::vector<Vec3f>::const_iterator it = lines.begin(); it!=lines.end(); ++it)
@@ -148,11 +156,11 @@ int main( int argc, const char** argv )
 //	resize(leftImage, leftImage, newSize);
 //	resize(rightImage, rightImage,newSize);
 
-    imshow("left", originalLeftImage);
-    imshow("right", originalRightImage);
-    imwrite("leftResult.png", originalLeftImage);
-    imwrite("rightResult.png", originalRightImage);
-    waitKey(0);
+//    imshow("left", originalLeftImage);
+//    imshow("right", originalRightImage);
+//    imwrite("leftResult.png", originalLeftImage);
+//    imwrite("rightResult.png", originalRightImage);
+//    waitKey(0);
 
     // ***************DISPARITY************************
 //    	Mat disparity;
@@ -174,14 +182,21 @@ int main( int argc, const char** argv )
     float rotationY = 45; //in degrees motherfucka
     float translationX = 30; //in cm BITCH
     float translationZ = 12.5; //in cm also crazy whore
+    float ppm = 1; //pixels per cm
 
     Size leftSize = leftImage.size();
     Point3f OimgL(-leftSize.width/2, leftSize.height/2, f);
 
-    point3f Or(30, 0, 12,5);
-    point3f OimgR(Or.x - leftSize.width/2, leftSize.width/2, Or.z + f);
+    Point3f Or(translationX*ppm, 0, translationZ*ppm);
     // Apply rotation
-    
+    float rotationConstX = Or.x*(1-cos(rotationY)) + Or.z * sin(rotationY);
+    float rotationConstZ = Or.y*(1-cos(rotationY)) - Or.x * sin(rotationY);
+
+    Point3f OimgR = OimgL + Or; //translation
+    cout << OimgR << endl;
+
+    OimgR = applyRotationY(OimgR, rotationY, rotationConstX, rotationConstZ);
+    cout << OimgR << endl;
 
     return 0;
 }
