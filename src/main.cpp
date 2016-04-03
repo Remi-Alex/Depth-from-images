@@ -8,28 +8,89 @@
 #include "opencv2/imgproc/imgproc.hpp"
  
 #include <iostream>
+#include <stdlib.h>     /* abs */
 #include <stdio.h>
 #include <vector>
+#include <limits>       // std::numeric_limits
+#include <sstream>
  
 using namespace std;
 using namespace cv;
 
 /* ----- DEFINES ----- BEGIN */
-#define MIN_HESSIAN 800
+#define MIN_HESSIAN 430
 /* ----- DEFINES ----- END */
 
-Point3f get3DPoint(Point3f Ol, Point3f Or, Point3f xl, Point3f xr)
+Point3f Ol(0,0,0);
+Point3f OimgL(0,0,0);
+Point3f OimgR(0,0,0);
+float f = 53.19; //in cm !!!!!!!
+float rotationY = 45; //in degrees motherfucka
+float translationX = 30; //in cm BITCH
+float translationZ = 12.5; //in cm also crazy whore
+float ppcm = 20.11; //pixels per cm
+float cmpp = 0.0497; //cm per pixel
+float T = 25; //cm (distance between two cameras
+Point3f Or(translationX, 0, translationZ);
+float rotationConstX = Or.x*(1-cos(rotationY)) + Or.z * sin(rotationY);
+float rotationConstZ = Or.y*(1-cos(rotationY)) - Or.x * sin(rotationY);
+
+
+vector<Point2f> calibratedPoints;
+
+
+Point3f get3DPoint(Point3f xl, Point3f xr)
 {
     Point3f leftDir = xl - Ol;
+    leftDir.x /= norm(leftDir);
+    leftDir.y /= norm(leftDir);
+    leftDir.z /= norm(leftDir);
     Point3f rightDir = xr - Or;
+    rightDir.x /= norm(rightDir);
+    rightDir.y /= norm(rightDir);
+    rightDir.z /= norm(rightDir);
+    Point3f tempPoint;
 
+    Point3f maxR = xl + 300 * rightDir;
+
+    float distance = std::numeric_limits<float>::max(), distTemp;
+    int goodT = -1;
+    for(int t = 0; t < 300; ++t)
+    {
+    	tempPoint = xl + t * leftDir;
+    	distTemp = norm((tempPoint - xr).cross(tempPoint-maxR))/norm(maxR-xr);
+    	if(distTemp < distance)
+    	{
+    		goodT = t;
+    		distance = distTemp;
+    	}
+    }
+
+    return Point3f(xl + goodT * leftDir);
 }
 
-Point3f applyRotationY(Point3f point, float angle, float constX, float constZ)
+Point3f applyRotationY()
 {
-	Point3f result(0,point.y,0);
-	result.x = point.x * cos(angle) - point.z * sin(angle) + constX;
-	result.z = point.x * sin(angle) + point.z * cos(angle) + constZ;
+	Point3f result(0,Or.y,0);
+	result.x = Or.x * cos(rotationY) - Or.z * sin(rotationY) + rotationConstX;
+	result.z = Or.x * sin(rotationY) + Or.z * cos(rotationY) + rotationConstZ;
+	return result;
+}
+
+Point3f getIn3D(Point2f point, bool left)
+{
+	Point3f result(0,0,0);
+
+	if(left)
+	{
+		result = Point3f(OimgL.x + point.x*cmpp, OimgL.y - point.y*cmpp, f);
+	}
+	else
+	{
+		result = Point3f(OimgR.x + point.x*cmpp, OimgR.y - point.y*cmpp, f);
+		result = applyRotationY();
+	}
+
 	return result;
 }
 
@@ -62,11 +123,67 @@ void drawPoints(Mat & left_img, Mat & right_img, vector<Point2f> & left, vector<
 	}
 }
 
+void epipolarGeometry(Mat& leftImage, vector<Point2f>& left, vector<Point2f>& right)
+{
+    Size leftSize = leftImage.size();
+    OimgL = Point3f((-leftSize.width/2)*cmpp, (leftSize.height/2)*cmpp, f);
+
+    OimgR = OimgL + Or; //translation
+    OimgR = applyRotationY();
+
+    for(unsigned int l = 0; l < 5; ++l)
+    {
+    	Point2f pLeft = left[l];
+    	Point2f pRight = right[l];
+
+    	cout << getIn3D(pLeft, true) << endl;
+
+    	Point3f res = get3DPoint(getIn3D(pLeft, true), getIn3D(pRight, false));
+
+    	cout << res << endl;
+    	cout << "*********" << endl;
+    }
+}
+
+void disparityMethod(Mat& leftImage, vector<Point2f>& left, vector<Point2f>& right)
+{
+	for(unsigned int l = 0; l < left.size(); ++l)
+	{
+		Point2f pLeft = left[l];
+		Point2f pRight = right[l];
+		float dist = T/((pLeft.x*cmpp) - (pRight.x*cmpp)) * f;
+		circle(leftImage, left[l], 5, Scalar(255,0,0));
+		ostringstream buff;
+		buff << dist;
+		String s = buff.str();
+		putText(leftImage, s, Point2f(left[l].x + 8, left[l].y), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(255,0,0));
+
+	}
+}
+
+void disparityMethodCalibrated(Mat& leftImage)
+{
+	for(unsigned int l = 0; l < calibratedPoints.size(); l+=2)
+	{
+		Point2f pLeft = calibratedPoints[l];
+		Point2f pRight = calibratedPoints[l+1];
+		float dist = T/((pLeft.x*cmpp) - (pRight.x*cmpp)) * f;
+		circle(leftImage, calibratedPoints[l], 10, Scalar(255,0,0), 3);
+		ostringstream buff;
+		buff << dist;
+		String s = buff.str();
+		putText(leftImage, s, Point2f(calibratedPoints[l].x + 8, calibratedPoints[l].y), FONT_HERSHEY_SIMPLEX, 1, Scalar(255,0,0), 3);
+
+	}
+}
+
 int main( int argc, const char** argv )
 {
     /* ----- AUTO CALIBRATION ----- BEGIN */
-    Mat originalLeftImage = imread("images/left.jpg"); // query
-    Mat originalRightImage = imread("images/right.jpg"); // train
+    Mat originalLeftImage = imread("images/etalonnage/KinectScreenshot-Color-03-40-32.bmp"); // query
+    Mat originalRightImage = imread("images/etalonnage/KinectScreenshot-Color-03-45-44.bmp"); // train
+//	Mat originalLeftImage = imread("images/etalonnage/KinectScreenshot-Color-04-08-11.bmp"); // query
+//	Mat originalRightImage = imread("images/etalonnage/KinectScreenshot-Color-04-07-33.bmp"); // train
 
     Mat leftImage, rightImage;
 
@@ -74,13 +191,13 @@ int main( int argc, const char** argv )
     cvtColor(originalRightImage, rightImage, CV_BGR2GRAY);
 
     // Keypoints
-    SurfFeatureDetector detector(MIN_HESSIAN);
+    SiftFeatureDetector detector(MIN_HESSIAN);
     std::vector< KeyPoint > kp_left, kp_right;
     detector.detect(leftImage, kp_left);
     detector.detect(rightImage, kp_right);
 
     // Descriptors
-    SurfDescriptorExtractor extractor;
+    SiftDescriptorExtractor extractor;
     Mat desc_left, desc_right;
     extractor.compute( leftImage, kp_left, desc_left );
     extractor.compute( rightImage, kp_right, desc_right );
@@ -133,15 +250,18 @@ int main( int argc, const char** argv )
         }
     }
 
-//    drawPoints(originalLeftImage, originalRightImage, left, right);
+    drawPoints(originalLeftImage, originalRightImage, left, right);
+//    Size leftSize = originalLeftImage.size();
+//  	Size newSize(leftSize.width/2, leftSize.height/2);
+//  	resize(originalLeftImage, originalLeftImage, newSize);
+//  	resize(originalRightImage, originalRightImage,newSize);
 //    imshow("left", originalLeftImage);
 //    imshow("right", originalRightImage);
+
 //    waitKey(0);
 
     // Calculate fundamental matrix
-    Mat mask;
-    Mat F = findFundamentalMat(Mat(left),Mat(right),CV_FM_LMEDS, 3., 0.99, mask);
-
+    Mat F = findFundamentalMat(Mat(left),Mat(right),CV_FM_LMEDS);
 
 
     // Find epilines
@@ -156,10 +276,10 @@ int main( int argc, const char** argv )
 //	resize(leftImage, leftImage, newSize);
 //	resize(rightImage, rightImage,newSize);
 
-//    imshow("left", originalLeftImage);
-//    imshow("right", originalRightImage);
-//    imwrite("leftResult.png", originalLeftImage);
-//    imwrite("rightResult.png", originalRightImage);
+    imshow("left", originalLeftImage);
+    imshow("right", originalRightImage);
+    imwrite("leftResult.png", originalLeftImage);
+    imwrite("rightResult.png", originalRightImage);
 //    waitKey(0);
 
     // ***************DISPARITY************************
@@ -169,34 +289,39 @@ int main( int argc, const char** argv )
 //    	stereo(leftImage, rightImage, disparity);
 //
 //    	disparity.convertTo(disparity, CV_8UC1);
-////		Size size = disparity.size();
-////		Size newSize(size.width/5, size.height/5);
-////		resize(disparity, disparity, newSize);
+//		Size size = disparity.size();
+//		Size newSize(size.width/2, size.height/2);
+//		resize(disparity, disparity, newSize);
 //    	imshow("Disparity map", disparity);
 //    	waitKey(0);
     //*************************************************
 
+    //epipolarGeometry(leftImage, left, right);
 
-    Point3f Ol(0,0,0);
-    float f = 366; //in pixels because fuck you that's why
-    float rotationY = 45; //in degrees motherfucka
-    float translationX = 30; //in cm BITCH
-    float translationZ = 12.5; //in cm also crazy whore
-    float ppm = 1; //pixels per cm
+//    disparityMethod(leftImage, left, right);
 
-    Size leftSize = leftImage.size();
-    Point3f OimgL(-leftSize.width/2, leftSize.height/2, f);
+    //clavier
+    calibratedPoints.push_back(Point2f(1208,384));
+    calibratedPoints.push_back(Point2f(707, 380));
+    //batman
+    calibratedPoints.push_back(Point2f(1145, 67));
+    calibratedPoints.push_back(Point2f(987, 63));
+    //canapé
+    calibratedPoints.push_back(Point2f(401, 417));
+    calibratedPoints.push_back(Point2f(207, 414));
+    //coussin
+    calibratedPoints.push_back(Point2f(1643, 572));
+    calibratedPoints.push_back(Point2f(1386, 571));
 
-    Point3f Or(translationX*ppm, 0, translationZ*ppm);
-    // Apply rotation
-    float rotationConstX = Or.x*(1-cos(rotationY)) + Or.z * sin(rotationY);
-    float rotationConstZ = Or.y*(1-cos(rotationY)) - Or.x * sin(rotationY);
+    disparityMethodCalibrated(leftImage);
+//    Size size = leftImage.size();
+//	Size newSize = Size(size.width/2, size.height/2);
+//	resize(leftImage, leftImage, newSize);
+    imshow("resultat trop boooo", leftImage);
+    imwrite("distance.png", leftImage);
+    waitKey(0);
 
-    Point3f OimgR = OimgL + Or; //translation
-    cout << OimgR << endl;
 
-    OimgR = applyRotationY(OimgR, rotationY, rotationConstX, rotationConstZ);
-    cout << OimgR << endl;
 
     return 0;
 }
