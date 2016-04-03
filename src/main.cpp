@@ -17,7 +17,14 @@ using namespace cv;
 /* ----- DEFINES ----- BEGIN */
 #define MIN_HESSIAN 800
 /* ----- DEFINES ----- END */
- 
+
+Point3f get3DPoint(Point3f Ol, Point3f Or, Point3f xl, Point3f xr)
+{
+    Point3f leftDir = xl - Ol;
+    Point3f rightDir = xr - Or;
+
+}
+
 void drawEpilines(Mat & img, vector< Vec3f> lines, vector< Point2f > points)
 {
     for (std::vector<Vec3f>::const_iterator it = lines.begin(); it!=lines.end(); ++it)
@@ -171,6 +178,10 @@ int main( int argc, const char** argv )
     Size leftSize = leftImage.size();
     Point3f OimgL(-leftSize.width/2, leftSize.height/2, f);
 
+    point3f Or(30, 0, 12,5);
+    point3f OimgR(Or.x - leftSize.width/2, leftSize.width/2, Or.z + f);
+    // Apply rotation
+    
 
     return 0;
 }
