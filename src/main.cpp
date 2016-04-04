@@ -18,14 +18,15 @@ using namespace std;
 using namespace cv;
 
 /* ----- DEFINES ----- BEGIN */
-#define MIN_HESSIAN 430
+#define MIN_HESSIAN 430 // OTHER
+//#define MIN_HESSIAN 300 // epipo 
 /* ----- DEFINES ----- END */
 
 Point3f Ol(0,0,0);
 Point3f OimgL(0,0,0);
 Point3f OimgR(0,0,0);
 float f = 53.19; //in cm !!!!!!!
-float rotationY = 45; //in degrees motherfucka
+float rotationY = -45; //in degrees motherfucka
 float translationX = 30; //in cm BITCH
 float translationZ = 12.5; //in cm also crazy whore
 float ppcm = 20.11; //pixels per cm
@@ -39,6 +40,35 @@ Mat F;
 
 vector<Point2f> calibratedPoints;
 
+bool lineIntersection(Point2f o1, Point2f p1, Point2f o2, Point2f p2,
+                      Point2f &r)
+{
+    Point2f x = o2 - o1;
+    Point2f d1 = p1 - o1;
+    Point2f d2 = p2 - o2;
+
+    float cross = d1.x*d2.y - d1.y*d2.x;
+    if (abs(cross) < /*EPS*/1e-8)
+    {
+        cout << abs(cross) << endl;
+        return false;
+    }
+
+    double t1 = (x.x * d2.y - x.y * d2.x)/cross;
+    r = o1 + d1 * t1;
+    return true;
+}
+
+bool epilineIntersection(Mat& img, vector< Vec3f >& lines, Point2f& intersection)
+{
+    Point l1a(0,-lines[0][2]/lines[0][1]);
+    Point l1b(img.cols,-(lines[0][2]+lines[0][0]*img.cols)/lines[0][1]);
+
+    Point l2a(0,-lines[3][2]/lines[3][1]);
+    Point l2b(img.cols,-(lines[3][2]+lines[3][0]*img.cols)/lines[3][1]);
+
+    return lineIntersection(l1a, l1b, l2a, l2b, intersection);
+}
 
 Point3f get3DPoint(Point3f xl, Point3f xr)
 {
@@ -146,41 +176,98 @@ void epipolarGeometry(Mat& leftImage, vector<Point2f>& left, vector<Point2f>& ri
     }
 }
 
-void calibratedEpipolarGeometry(Mat& leftImage, Mat& rightImage, vector<Point2f>& left, vector<Point2f>& right)
+void calibratedEpipolarGeometry(Mat& leftImage, Mat& rightImage, vector<Point2f>& left, vector<Point2f>& right, Point3f& ePrime)
 {
-    float alpha = f * ppcm;
-    Size leftSize = leftImage.size();
-    float u = leftSize.width / 2;
-    float v = leftSize.height / 2;
-    float data[9] = {alpha,0,u,0,alpha,v,0,0,1};
-    Mat K = Mat(3, 3, CV_64F, &data);
-    Mat E = K.t() * F * K;
+    // float alpha = f * ppcm;
+    // Size leftSize = leftImage.size();
+    // float u = leftSize.width / 2;
+    // float v = leftSize.height / 2;
+    // float data[9] = {alpha,0,u,0,alpha,v,0,0,1};
+    // Mat K = Mat(3, 3, CV_64F, &data);
+    // Mat E = K.t() * F * K;
 
-    cout << E << endl;
+    // cout << E << endl;
 
-    SVD svd(E,SVD::MODIFY_A);
-    Mat svd_u = svd.u;
-    Mat svd_vt = svd.vt;
-    Mat svd_w = svd.w;
-    Matx33d W(0,-1,0,1,0,0,0,0,1);//HZ 9.13
-    Mat_<double> R = svd_u * Mat(W) * svd_vt; //
-    Mat_<double> T = svd_u.col(2); //u3
+    // SVD svd(E,SVD::MODIFY_A);
+    // Mat svd_u = svd.u;
+    // Mat svd_vt = svd.vt;
+    // Mat svd_w = svd.w;
+    // Matx33d W(0,-1,0,1,0,0,0,0,1);//HZ 9.13
+    // Mat_<double> R = svd_u * Mat(W) * svd_vt; //
+    // Mat_<double> T = svd_u.col(2); //u3
 
-    cout << R << " " << T << endl;
+    // cout << R << " " << T << endl;
+
+    double pData[12] = {1,0,0,0,0,1,0,0,0,0,1,0};
+    Mat P(3, 4, CV_64F, &pData);
+
+    cout << "P :      " << P << endl;
+
+    double sData[9] = {0,-ePrime.z,ePrime.y,ePrime.z,0,-ePrime.x,-ePrime.y,ePrime.x,0};
+    Mat S(3,3,CV_64F,&sData);
+
+    cout << ePrime << endl;
+
+    cout << "F :      " << F << endl;
+
+    cout << "S :      " << S << endl; 
+
+    Mat inter = S * F;
+
+    cout << "inter :      " << inter << endl;
+
+    Mat pPrime(3, 4, CV_64F);
+    for(int i = 0; i < 3; ++i)
+    {
+        for(int j = 0; j < 3; ++j)
+        {
+            pPrime.at<double>(i,j)=inter.at<double>(i,j);
+        }
+    }
+    pPrime.at<double>(0,3)=ePrime.x;
+    pPrime.at<double>(1,3)=ePrime.y;
+    pPrime.at<double>(2,3)=ePrime.z;
+
+    cout << "pPrime :      " << pPrime << endl;
+
+    Mat A(4,4,CV_64F, double(0));
+    Mat B = Mat(4,1, CV_64F, double(0));
+    Mat x = Mat(4,1, CV_64F);
+    for(unsigned int i = 0; i < left.size(); ++i)
+    {
+        A.row(0) = left[i].x * P.row(2) - P.row(0);
+        A.row(1) = left[i].y * P.row(2) - P.row(1);
+        A.row(2) = right[i].x * pPrime.row(2) - pPrime.row(0);
+        A.row(3) = right[i].y * pPrime.row(2) - pPrime.row(1);
+
+        B = A.col(3).clone() ;
+
+        for(int j = 0; j < 4; ++j)
+        {
+            A.at<double>(j, 3) = 0;
+        }
+
+        cout << "A :      " << A << endl;
+        cout << "B :      " << B << endl;
+
+        solve(A, B, x);
+        cout << "x :      " << A.inv() * B << endl;
+        cout << "sol :    " << x/x.at<double>(3) << endl;
+    }
 }
 
 void betterDisparity(Mat& leftImage, Mat& rightImage, vector<Point2f>& left, vector<Point2f>& right)
 {
     cv::Mat H1(4,4, leftImage.type());
     cv::Mat H2(4,4, leftImage.type());
-    cv::stereoRectifyUncalibrated(right, left, F, leftImage.size(), H1, H2);
+    cv::stereoRectifyUncalibrated(left, right, F, leftImage.size(), H1, H2);
 
     // create the image in which we will save our disparities
     Mat imgDisparity16S = Mat( leftImage.rows, leftImage.cols, CV_16S );
     Mat imgDisparity8U = Mat( leftImage.rows, leftImage.cols, CV_8UC1 );
 
     // Call the constructor for StereoBM
-    int ndisparities = 16*5;      // < Range of disparity >
+    int ndisparities = 16;      // < Range of disparity >
     int SADWindowSize = 5;        // < Size of the block window > Must be odd. Is the 
                                   // size of averaging window used to match pixel  
                                   // blocks(larger values mean better robustness to
@@ -205,6 +292,8 @@ void betterDisparity(Mat& leftImage, Mat& rightImage, vector<Point2f>& left, vec
 
     namedWindow( "windowDisparity", CV_WINDOW_NORMAL );
     imshow( "windowDisparity", imgDisparity8U );
+
+    cout << imgDisparity16S.at<short>(calibratedPoints[0].x, calibratedPoints[0].y) << endl;
 }
 
 
@@ -243,8 +332,10 @@ void disparityMethodCalibrated(Mat& leftImage)
 int main( int argc, const char** argv )
 {
     /* ----- AUTO CALIBRATION ----- BEGIN */
-    Mat originalLeftImage = imread("../images/etalonnage/KinectScreenshot-Color-03-40-32.bmp"); // query
-    Mat originalRightImage = imread("../images/etalonnage/KinectScreenshot-Color-03-45-44.bmp"); // train
+    Mat originalLeftImage = imread("../images/kinectL.bmp"); // query
+    Mat originalRightImage = imread("../images/kinectR.bmp"); // train
+    // Mat originalLeftImage = imread("../images/etalonnage/KinectScreenshot-Color-03-40-32.bmp"); // query
+    // Mat originalRightImage = imread("../images/etalonnage/KinectScreenshot-Color-03-45-44.bmp"); // train
 //	Mat originalLeftImage = imread("images/etalonnage/KinectScreenshot-Color-04-08-11.bmp"); // query
 //	Mat originalRightImage = imread("images/etalonnage/KinectScreenshot-Color-04-07-33.bmp"); // train
 
@@ -313,6 +404,35 @@ int main( int argc, const char** argv )
         }
     }
 
+    // ************************ HACK
+    left.clear();
+    right.clear();
+    //clavier
+    left.push_back(Point2f(550,47));
+    right.push_back(Point2f(1175,34));
+
+    left.push_back(Point2f(785,614));
+    right.push_back(Point2f(837,587));
+
+    left.push_back(Point2f(1227,470));
+    right.push_back(Point2f(1484,404));
+
+    left.push_back(Point2f(190,75));
+    right.push_back(Point2f(880,153));
+
+    left.push_back(Point2f(605,180));
+    right.push_back(Point2f(1237,151));
+
+    left.push_back(Point2f(882,368));
+    right.push_back(Point2f(961,322));
+
+    left.push_back(Point2f(1271,559));
+    right.push_back(Point2f(1610,543));
+
+    left.push_back(Point2f(348,94));
+    right.push_back(Point2f(1001,137));
+    //////////////// ********** FIN HACK
+
     drawPoints(originalLeftImage, originalRightImage, left, right);
 //    Size leftSize = originalLeftImage.size();
 //  	Size newSize(leftSize.width/2, leftSize.height/2);
@@ -343,6 +463,14 @@ int main( int argc, const char** argv )
     imshow("right", originalRightImage);
     imwrite("leftResult.png", originalLeftImage);
     imwrite("rightResult.png", originalRightImage);
+
+    Point2f ePrime;
+    if(!epilineIntersection(leftImage, lines_right, ePrime))
+    {
+        cout << "No intersection!" << endl;
+        exit(-1337);
+    }
+    Point3f ePrimeH(ePrime.x, ePrime.y, 1);
 //    waitKey(0);
 
     // ***************DISPARITY************************
@@ -376,9 +504,9 @@ int main( int argc, const char** argv )
     calibratedPoints.push_back(Point2f(1643, 572));
     calibratedPoints.push_back(Point2f(1386, 571));
 
-    //calibratedEpipolarGeometry(leftImage, rightImage, left, right);
+    calibratedEpipolarGeometry(leftImage, rightImage, left, right, ePrimeH);
 
-    betterDisparity(leftImage, rightImage, left, right);
+    //betterDisparity(leftImage, rightImage, left, right);
 
     //disparityMethodCalibrated(leftImage);
 //    Size size = leftImage.size();
