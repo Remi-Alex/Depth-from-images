@@ -34,6 +34,7 @@ float T = 25; //cm (distance between two cameras
 Point3f Or(translationX, 0, translationZ);
 float rotationConstX = Or.x*(1-cos(rotationY)) + Or.z * sin(rotationY);
 float rotationConstZ = Or.y*(1-cos(rotationY)) - Or.x * sin(rotationY);
+Mat F;
 
 
 vector<Point2f> calibratedPoints;
@@ -145,6 +146,68 @@ void epipolarGeometry(Mat& leftImage, vector<Point2f>& left, vector<Point2f>& ri
     }
 }
 
+void calibratedEpipolarGeometry(Mat& leftImage, Mat& rightImage, vector<Point2f>& left, vector<Point2f>& right)
+{
+    float alpha = f * ppcm;
+    Size leftSize = leftImage.size();
+    float u = leftSize.width / 2;
+    float v = leftSize.height / 2;
+    float data[9] = {alpha,0,u,0,alpha,v,0,0,1};
+    Mat K = Mat(3, 3, CV_64F, &data);
+    Mat E = K.t() * F * K;
+
+    cout << E << endl;
+
+    SVD svd(E,SVD::MODIFY_A);
+    Mat svd_u = svd.u;
+    Mat svd_vt = svd.vt;
+    Mat svd_w = svd.w;
+    Matx33d W(0,-1,0,1,0,0,0,0,1);//HZ 9.13
+    Mat_<double> R = svd_u * Mat(W) * svd_vt; //
+    Mat_<double> T = svd_u.col(2); //u3
+
+    cout << R << " " << T << endl;
+}
+
+void betterDisparity(Mat& leftImage, Mat& rightImage, vector<Point2f>& left, vector<Point2f>& right)
+{
+    cv::Mat H1(4,4, leftImage.type());
+    cv::Mat H2(4,4, leftImage.type());
+    cv::stereoRectifyUncalibrated(right, left, F, leftImage.size(), H1, H2);
+
+    // create the image in which we will save our disparities
+    Mat imgDisparity16S = Mat( leftImage.rows, leftImage.cols, CV_16S );
+    Mat imgDisparity8U = Mat( leftImage.rows, leftImage.cols, CV_8UC1 );
+
+    // Call the constructor for StereoBM
+    int ndisparities = 16*5;      // < Range of disparity >
+    int SADWindowSize = 5;        // < Size of the block window > Must be odd. Is the 
+                                  // size of averaging window used to match pixel  
+                                  // blocks(larger values mean better robustness to
+                                  // noise, but yield blurry disparity maps)
+
+    StereoBM sbm( StereoBM::BASIC_PRESET,
+        ndisparities,
+        SADWindowSize );
+
+    // Calculate the disparity image
+    sbm( leftImage, rightImage, imgDisparity16S, CV_16S );
+
+    // Check its extreme values
+    double minVal; double maxVal;
+
+    minMaxLoc( imgDisparity16S, &minVal, &maxVal );
+
+    printf("Min disp: %f Max value: %f \n", minVal, maxVal);
+
+    // Display it as a CV_8UC1 image
+    imgDisparity16S.convertTo( imgDisparity8U, CV_8UC1, 255/(maxVal - minVal));
+
+    namedWindow( "windowDisparity", CV_WINDOW_NORMAL );
+    imshow( "windowDisparity", imgDisparity8U );
+}
+
+
 void disparityMethod(Mat& leftImage, vector<Point2f>& left, vector<Point2f>& right)
 {
 	for(unsigned int l = 0; l < left.size(); ++l)
@@ -180,8 +243,8 @@ void disparityMethodCalibrated(Mat& leftImage)
 int main( int argc, const char** argv )
 {
     /* ----- AUTO CALIBRATION ----- BEGIN */
-    Mat originalLeftImage = imread("images/etalonnage/KinectScreenshot-Color-03-40-32.bmp"); // query
-    Mat originalRightImage = imread("images/etalonnage/KinectScreenshot-Color-03-45-44.bmp"); // train
+    Mat originalLeftImage = imread("../images/etalonnage/KinectScreenshot-Color-03-40-32.bmp"); // query
+    Mat originalRightImage = imread("../images/etalonnage/KinectScreenshot-Color-03-45-44.bmp"); // train
 //	Mat originalLeftImage = imread("images/etalonnage/KinectScreenshot-Color-04-08-11.bmp"); // query
 //	Mat originalRightImage = imread("images/etalonnage/KinectScreenshot-Color-04-07-33.bmp"); // train
 
@@ -261,7 +324,7 @@ int main( int argc, const char** argv )
 //    waitKey(0);
 
     // Calculate fundamental matrix
-    Mat F = findFundamentalMat(Mat(left),Mat(right),CV_FM_LMEDS);
+    F = findFundamentalMat(Mat(left),Mat(right),CV_FM_LMEDS);
 
 
     // Find epilines
@@ -298,7 +361,7 @@ int main( int argc, const char** argv )
 
     //epipolarGeometry(leftImage, left, right);
 
-//    disparityMethod(leftImage, left, right);
+    //disparityMethod(leftImage, left, right);
 
     //clavier
     calibratedPoints.push_back(Point2f(1208,384));
@@ -313,7 +376,11 @@ int main( int argc, const char** argv )
     calibratedPoints.push_back(Point2f(1643, 572));
     calibratedPoints.push_back(Point2f(1386, 571));
 
-    disparityMethodCalibrated(leftImage);
+    //calibratedEpipolarGeometry(leftImage, rightImage, left, right);
+
+    betterDisparity(leftImage, rightImage, left, right);
+
+    //disparityMethodCalibrated(leftImage);
 //    Size size = leftImage.size();
 //	Size newSize = Size(size.width/2, size.height/2);
 //	resize(leftImage, leftImage, newSize);
