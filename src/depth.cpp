@@ -17,64 +17,128 @@ Point3f Or(translationX, 0, translationZ);
 float rotationConstX = Or.x*(1-cos(rotationY)) + Or.z * sin(rotationY);
 float rotationConstZ = Or.y*(1-cos(rotationY)) - Or.x * sin(rotationY);
 
+void cameraMatrices(const cv::Mat & E, cv::Mat& M1, std::vector<cv::Mat>& M2s)
+{   
+    cout << "camera matrices" << endl;
+    M1 = (Mat_<double>(3,4) << 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0);
+    Mat S, U, V, result;
+    SVD::compute(E, S, U, V);
+    double m = (S.at<double>(0)+S.at<double>(1))/2;
+    Mat temp = (Mat_<double>(3,3) << m, 0, 0, 0, m, 0, 0, 0, 0);
+    Mat Ep = U * temp * V; // <------------- GOOD
+    SVD::compute(Ep, S, U, V);
+    Mat W = (Mat_<double>(3,3) << 0, -1, 0, 1, 0, 0, 0, 0, 1);
+
+    if (determinant(U*W*V)<0)
+    {
+        W = W*(-1);
+    }
+
+    cout << "test" << endl;
+
+    temp = Mat(3, 3, CV_64F, 0);
+    temp = U*W*V;
+    double min, max;
+    cv::minMaxLoc(abs(U.col(2)), &min, &max);
+    Mat calc = U.col(2)/max;
+    hconcat(temp.clone(), calc, result);
+    M2s.push_back(result.clone());
+
+    hconcat(temp.clone(), calc * -1, result);
+    M2s.push_back(result.clone());
+
+    temp = U*W.t()*V;
+    hconcat(temp.clone(), calc, result);
+    M2s.push_back(result.clone());
+
+    hconcat(temp.clone(), calc * -1, result);
+    M2s.push_back(result.clone());
+
+
+        // for(unsigned int i = 0; i < M2s.size(); ++i)
+        // {
+        //     cout << M2s[i] << endl;
+        // }
+}
+
+Mat skewSymmetricMatrix(const Point2f& p)
+{
+    return Mat_<double>(3,3) << 0, 1, -p.y, -1, 0, p.x, p.y, -p.x, 0;
+}
+
+void triangulate(const Mat & M1, const Mat & M2, vector<Point2f>& left, vector<Point2f>& right, std::vector<Point3f>& Ps)
+{
+    cout << "\t ----- new M2" << endl;
+    Mat skmLeft, skmRight, result, S, U, V, temp, point;
+    for(unsigned int i = 0; i < left.size(); ++i)
+    {
+        skmLeft = skewSymmetricMatrix(left[i]);
+        skmRight = skewSymmetricMatrix(right[i]);
+
+        vconcat(skmLeft * M1, skmRight * M2, result);
+
+        SVD::compute(result, S, U, V);
+        V = V.t();
+        temp = V.col(V.cols - 1);
+        point = temp/temp.at<double>(3);
+        //cout << point << endl;
+        Ps.push_back(Point3f(point.at<double>(0), point.at<double>(1), point.at<double>(2)));
+    }
+}
+
 void calibratedEpipolarGeometry(cv::Mat& F, Mat& leftImage, Mat& rightImage, vector<Point2f>& left, vector<Point2f>& right)
 {
+    cout << "Prout" << endl;
+    cv::Mat M1, skm;
+    vector<Mat> M2s;
+    
     float alpha = f * ppcm;
     Size leftSize = leftImage.size();
     float u = leftSize.width / 2;
     float v = leftSize.height / 2;
     double data[9] = {alpha,0,u,0,alpha,v,0,0,1};
+    //double data[9] = {1520.4,0,302.32,0,1525.9,246.87,0,0,1};
     Mat K = Mat(3, 3, CV_64F, &data);
+    cout << K << endl;
     Mat E = K.t() * F * K;
 
-    Mat M1 = (Mat_<double>(3,4) << 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0);
-    Mat C1 = K * M1;
+    cameraMatrices(E, M1, M2s);
+    std::vector<Point3f> Pfinal;
+    int nbNegMin = left.size(), nbNeg;
 
-    cout << "C1 : " << C1 << endl;
-
-    SVD svd(E,SVD::MODIFY_A);
-    Mat svd_u = svd.u;
-    Mat svd_vt = svd.vt;
-    Mat svd_w = svd.w;
-    Matx33d W(0,-1,0,1,0,0,0,0,1);//HZ 9.13
-    Mat_<double> R = svd_u * Mat(W) * svd_vt; //
-    Mat_<double> T = svd_u.col(2); //u3
-
-    Mat M2 = Mat_<double>(3,4);
-    for(int i = 0; i < 3; ++i)
+    for(unsigned int i = 0; i < M2s.size(); ++i)
     {
-        for(int j = 0; j < 3; ++j)
+        nbNeg = 0;
+        std::vector<Point3f> Ps;
+        triangulate(K * M1, K * M2s[i], left, right, Ps);
+        for(unsigned int j = 0; j < Ps.size(); ++j)
         {
-            M2.at<double>(i,j) = R.at<double>(i,j);
+            if(Ps[j].z <= 0)
+            {
+                ++nbNeg;
+            }
         }
-        M2.at<double>(i, 3) = T.at<double>(i);
+        if(nbNeg < nbNegMin) // We accept some percent of errors
+        {
+            cout << "Best M2 is : " << i << " with " << nbNeg << endl;
+            Pfinal = Ps;
+            nbNegMin = nbNeg;
+        }
     }
 
-    Mat C2 = K * M2;
-
-    cout << "C2 : " << C2 << endl;
-
-    vector<Point3f> pLeft, pRight;
-    Mat A(4,4,CV_64F, double(0));
-    for(unsigned int i = 0; i < left.size(); ++i)
+    cout << "Reprojection and saving" << endl;
+    ofstream myfile;
+    myfile.open ("example.csv");
+    for(unsigned int i = 0; i < Pfinal.size(); ++i)
     {
-        A.row(0) = left[i].x * C1.row(2) - C1.row(0);
-        A.row(1) = left[i].y * C1.row(2) - C1.row(1);
-        A.row(2) = right[i].x * C2.row(2) - C2.row(0);
-        A.row(3) = right[i].y * C2.row(2) - C2.row(1);
-
-        cout << "left : " << left[i] << "\nright : " << right[i] << endl;
-
-        SVD svd2(A);
-        Mat result = svd2.w/svd2.w.at<double>(3);
-
-        cout << "result : " << result << endl;
-        Mat reproj = C1 * result;
-        cout << "left reproject : " << reproj/reproj.at<double>(2) << endl;
-
-        pLeft.push_back(Point3f(left[i].x, left[i].y, 1));
-        pRight.push_back(Point3f(right[i].x, right[i].y, 1));
+        if(Pfinal[i].z >= 0)
+        {
+            myfile << Pfinal[i].x << "," << Pfinal[i].y << "," << Pfinal[i].z << "\n";
+            Mat pointFinal = (Mat_<double>(4,1) << Pfinal[i].x, Pfinal[i].y, Pfinal[i].z, 1);
+            cout << "\t" << left[i] << endl << "\t" << K * M1 * pointFinal << endl << "\t-----" << endl;
+        }
     }
+    myfile.close();
 }
 
 void betterDisparity(cv::Mat& F, Mat& leftImage, Mat& rightImage, vector<Point2f>& left, vector<Point2f>& right, std::vector<cv::Point2f>& calibratedPoints)

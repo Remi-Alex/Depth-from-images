@@ -15,10 +15,10 @@ void drawEpilines(Mat & img, vector< Vec3f> lines, vector< Point2f > points)
         );
     }
 
-    for (std::vector<Point2f>::const_iterator pt = points.begin(); pt!=points.end(); ++pt)
-    {
-        circle(img, *pt, 5, Scalar(255,0,0));
-    }
+    //for (std::vector<Point2f>::const_iterator pt = points.begin(); pt!=points.end(); ++pt)
+    //{
+    //    circle(img, *pt, 5, Scalar(255,0,0));
+    //}
 }
 
 void drawPoints(Mat & left_img, Mat & right_img, vector<Point2f> & left, vector<Point2f> & right)

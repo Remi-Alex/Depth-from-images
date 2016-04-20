@@ -11,7 +11,7 @@
 #include <iostream>
 #include <vector>
 
-#define MIN_HESSIAN 430
+#define MIN_HESSIAN 800
 
 bool lineIntersection(cv::Point2f o1, cv::Point2f p1, cv::Point2f o2, cv::Point2f p2, cv::Point2f &r);
 

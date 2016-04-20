@@ -95,29 +95,29 @@ void correspondences(Mat& leftImage, Mat& rightImage, vector<Point2f>& left, vec
 void manualCorrespondencesEpipolar(vector<Point2f>& left, vector<Point2f>& right)
 {
     //clavier
-    left.push_back(Point2f(550,47));
-    right.push_back(Point2f(1175,34));
+    right.push_back(Point2f(550,47));
+    left.push_back(Point2f(1175,34));
 
-    left.push_back(Point2f(785,614));
-    right.push_back(Point2f(837,587));
+    right.push_back(Point2f(785,614));
+    left.push_back(Point2f(837,587));
 
-    left.push_back(Point2f(1227,470));
-    right.push_back(Point2f(1484,404));
+    right.push_back(Point2f(1227,470));
+    left.push_back(Point2f(1484,404));
 
-    left.push_back(Point2f(190,75));
-    right.push_back(Point2f(880,153));
+    right.push_back(Point2f(190,75));
+    left.push_back(Point2f(880,153));
 
-    left.push_back(Point2f(605,180));
-    right.push_back(Point2f(1237,151));
+    right.push_back(Point2f(605,180));
+    left.push_back(Point2f(1237,151));
 
-    left.push_back(Point2f(882,368));
-    right.push_back(Point2f(961,322));
+    right.push_back(Point2f(882,368));
+    left.push_back(Point2f(961,322));
 
-    left.push_back(Point2f(1271,559));
-    right.push_back(Point2f(1610,543));
+    right.push_back(Point2f(1271,559));
+    left.push_back(Point2f(1610,543));
 
-    left.push_back(Point2f(348,94));
-    right.push_back(Point2f(1001,137));
+    right.push_back(Point2f(348,94));
+    left.push_back(Point2f(1001,137));
 }
 
 void manualCorrespondencesDisparity(vector<Point2f>& calibratedPoints)
